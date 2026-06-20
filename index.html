@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Boomshine by Nelson</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0d2b33; /* Fondo azul verdoso oscuro */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            color: #e0f2f1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        #header {
+            position: absolute;
+            top: 10px;
+            text-align: center;
+            width: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: #4db6ac;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+        #hud {
+            font-size: 1rem;
+            margin-top: 5px;
+            background: rgba(13, 43, 51, 0.6);
+            padding: 5px 15px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+        canvas {
+            background-color: #113f48; /* Tablero un poco más claro */
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+            display: block;
+        }
+        #screen-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(13, 43, 51, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            text-align: center;
+            padding: 20px;
+        }
+        button {
+            background: #4db6ac;
+            border: none;
+            color: #0d2b33;
+            padding: 12px 30px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 25px;
+            cursor: pointer;
+            margin-top: 20px;
+            box-shadow: 0 4px 15px rgba(77,182,172,0.4);
+            transition: transform 0.1s;
+        }
+        button:active {
+            transform: scale(0.95);
+        }
+        .msg {
+            font-size: 1.2rem;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <h1>Boomshine by Nelson</h1>
+        <div id="hud">Nivel: <span id="lbl-level">1</span> | Objetivo: <span id="lbl-target">0</span> | Explotados: <span id="lbl-score">0</span></div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="screen-overlay">
+        <h2 id="overlay-title">Boomshine by Nelson</h2>
+        <p id="overlay-desc" class="msg">Toca la pantalla para iniciar una reacción en cadena.</p>
+        <button id="btn-action">JUGAR</button>
+    </div>
+
+    <script>
+        // --- CONFIGURACIÓN DE AUDIO (Sintetizado por código para no requerir archivos) ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if (type === 'pop') {
+                // Sonido de explosión (reacción)
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(300 + Math.random() * 200, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.3);
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } else if (type === 'win') {
+                // Sonido de nivel superado
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+                osc.frequency.setValueAtTime(554, audioCtx.currentTime + 0.1);
+                osc.frequency.setValueAtTime(659, audioCtx.currentTime + 0.2);
+                osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.3);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.6);
+            }
+        }
+
+        // Música de fondo generativa (Loop relajante en sintonía con el juego)
+        let musicInterval;
+        function startBackgroundMusic() {
+            if (musicInterval) clearInterval(musicInterval);
+            const notes = [261.63, 293.66, 329.63, 392.00, 440.00]; // Pentatónica mayor de Do
+            
+            musicInterval = setInterval(() => {
+                if (Math.random() > 0.4) return; // Notas aleatorias pausadas
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                const note = notes[Math.floor(Math.random() * notes.length)];
+                osc.frequency.setValueAtTime(note, audioCtx.currentTime);
+                
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                gain.gain.setValueAtTime(0, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.03, audioCtx.currentTime + 1); // Ataque suave
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 4); // Desvanecimiento largo
+                
+                osc.start();
+                osc.stop(audioCtx.currentTime + 4);
+            }, 1500);
+        }
+
+        // --- LÓGICA DEL JUEGO ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Ajustar canvas a la pantalla del móvil
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Variables de estado del juego
+        let level = 1;
+        let totalCircles = 0;
+        let targetScore = 0;
+        let poppedCount = 0;
+        let circles = [];
+        let playerExplosion = null;
+        let gameState = 'MENU'; // MENU, PLAYING, LEVEL_END
+
+        // Parámetros por nivel (Círculos totales, Objetivo)
+        const levelConfig = [
+            { total: 5, target: 1 },
+            { total: 10, target: 2 },
+            { total: 15, target: 4 },
+            { total: 22, target: 7 },
+            { total: 30, target: 11 },
+            { total: 40, target: 17 },
+            { total: 48, target: 24 },
+            { total: 55, target: 31 },
+            { total: 60, target: 40 }
+        ];
+
+        class Circle {
+            constructor(x, y, isStatic = false) {
+                this.x = x || Math.random() * canvas.width;
+                this.y = y || Math.random() * canvas.height;
+                this.radius = 12;
+                this.color = `hsl(${Math.random() * 360}, 80%, 65%)`;
+                
+                // Movimiento
+                this.vx = isStatic ? 0 : (Math.random() - 0.5) * 3;
+                this.vy = isStatic ? 0 : (Math.random() - 0.5) * 3;
+                
+                // Estados de explosión
+                this.isStatic = isStatic; 
+                this.isExploding = isStatic; 
+                this.explosionRadius = isStatic ? 1 : 0;
+                this.maxExplosionRadius = 50;
+                this.timer = 0;
+                this.maxTimer = 120; // Frames que dura explotado
+                this.alpha = 1;
+            }
+
+            update() {
+                if (!this.isExploding) {
+                    // Mover círculos libres
+                    this.x += this.vx;
+                    this.y += this.vy;
+
+                    // Rebotar en bordes
+                    if (this.x - this.radius < 0 || this.x + this.radius > canvas.width) this.vx *= -1;
+                    if (this.y - this.radius < 0 || this.y + this.radius > canvas.height) this.vy *= -1;
+                } else {
+                    // Lógica de la explosión
+                    if (this.timer < 30) {
+                        // Crece
+                        this.explosionRadius += (this.maxExplosionRadius - this.explosionRadius) * 0.1;
+                    } else if (this.timer > this.maxTimer - 30) {
+                        // Desaparece al final
+                        this.alpha -= 1/30;
+                    }
+                    this.timer++;
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.isExploding ? Math.max(0, this.alpha) : 0.8;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.isExploding ? this.explosionRadius : this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                
+                // Borde brillante para las explosiones
+                if (this.isExploding) {
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+        }
+
+        function initLevel() {
+            const config = levelConfig[Math.min(level - 1, levelConfig.length - 1)];
+            totalCircles = config.total;
+            targetScore = config.target;
+            poppedCount = 0;
+            playerExplosion = null;
+            circles = [];
+
+            // Actualizar interfaz HTML
+            document.getElementById('lbl-level').innerText = level;
+            document.getElementById('lbl-target').innerText = targetScore;
+            document.getElementById('lbl-score').innerText = poppedCount;
+
+            // Crear círculos flotantes
+            for (let i = 0; i < totalCircles; i++) {
+                // Evitar que aparezcan pegados a los bordes rígidos
+                let c = new Circle();
+                c.x = Math.max(20, Math.min(canvas.width - 20, c.x));
+                c.y = Math.max(20, Math.min(canvas.height - 20, c.y));
+                circles.push(c);
+            }
+
+            gameState = 'PLAYING';
+            document.getElementById('screen-overlay').style.display = 'none';
+        }
+
+        // Manejo de Clic / Toque en pantalla
+        canvas.addEventListener('click', (e) => {
+            if (gameState !== 'PLAYING' || playerExplosion !== null) return;
+
+            // Iniciar el pulso del jugador en las coordenadas del toque
+            playerExplosion = new Circle(e.clientX, e.clientY, true);
+            circles.push(playerExplosion);
+            playSound('pop');
+        });
+
+        // Loop principal de renderizado
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Actualizar y dibujar círculos
+            for (let i = circles.length - 1; i >= 0; i--) {
+                let c = circles[i];
+                c.update();
+                c.draw();
+
+                // Revisar colisiones si está explotando
+                if (c.isExploding && c.timer < c.maxTimer - 30) {
+                    for (let j = 0; j < circles.length; j++) {
+                        let other = circles[j];
+                        if (!other.isExploding) {
+                            let dist = Math.hypot(c.x - other.x, c.y - other.y);
+                            if (dist < c.explosionRadius + other.radius) {
+                                other.isExploding = true;
+                                poppedCount++;
+                                document.getElementById('lbl-score').innerText = poppedCount;
+                                playSound('pop');
+                            }
+                        }
+                    }
+                }
+
+                // Eliminar explosiones terminadas
+                if (c.isExploding && c.timer >= c.maxTimer) {
+                    circles.splice(i, 1);
+                }
+            }
+
+            // Validar fin del nivel
+            if (gameState === 'PLAYING' && playerExplosion !== null) {
+                // Si ya no quedan círculos explotando
+                const activeExplosions = circles.some(c => c.isExploding);
+                if (!activeExplosions) {
+                    endLevel();
+                }
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function endLevel() {
+            gameState = 'LEVEL_END';
+            const overlay = document.getElementById('screen-overlay');
+            const title = document.getElementById('overlay-title');
+            const desc = document.getElementById('overlay-desc');
+            const btn = document.getElementById('btn-action');
+
+            overlay.style.display = 'flex';
+
+            if (poppedCount >= targetScore) {
+                playSound('win');
+                title.innerText = "¡Nivel Completado!";
+                desc.innerText = `Explotaste ${poppedCount} de ${targetScore} requeridos.`;
+                btn.innerText = "SIGUIENTE NIVEL";
+                level++;
+            } else {
+                title.innerText = "Fin del Juego";
+                desc.innerText = `Solo explotaste ${poppedCount}. Necesitabas ${targetScore}.`;
+                btn.innerText = "REINTENTAR";
+            }
+        }
+
+        // Botón de la interfaz flotante
+        document.getElementById('btn-action').addEventListener('click', () => {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+                startBackgroundMusic(); // Arranca la música con el primer toque
+            }
+            initLevel();
+        });
+
+        // Iniciar bucle gráfico
+        gameLoop();
+    </script>
+</body>
+</html>
